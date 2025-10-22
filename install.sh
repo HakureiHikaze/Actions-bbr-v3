@@ -6,6 +6,40 @@ if ! command -v apt-get &> /dev/null; then
     exit 1
 fi
 
+# 缓存目录配置（可通过环境变量 CACHE_DIR 自定义）
+CACHE_DIR="${CACHE_DIR:-/tmp/bbr-cache}"
+mkdir -p "$CACHE_DIR"
+
+# 代理配置函数
+setup_proxy() {
+    # 检查环境变量中的代理设置
+    # 支持 HTTP_PROXY, HTTPS_PROXY, SOCKS_PROXY 或 ALL_PROXY
+    CURL_PROXY_OPTS=""
+    WGET_PROXY_OPTS=""
+    
+    if [[ -n "$ALL_PROXY" ]]; then
+        CURL_PROXY_OPTS="--proxy $ALL_PROXY"
+        export http_proxy="$ALL_PROXY"
+        export https_proxy="$ALL_PROXY"
+    elif [[ -n "$SOCKS_PROXY" ]]; then
+        CURL_PROXY_OPTS="--proxy $SOCKS_PROXY"
+        export http_proxy="$SOCKS_PROXY"
+        export https_proxy="$SOCKS_PROXY"
+    elif [[ -n "$HTTP_PROXY" ]] || [[ -n "$HTTPS_PROXY" ]]; then
+        [[ -n "$HTTP_PROXY" ]] && export http_proxy="$HTTP_PROXY"
+        [[ -n "$HTTPS_PROXY" ]] && export https_proxy="$HTTPS_PROXY"
+        [[ -n "$HTTPS_PROXY" ]] && CURL_PROXY_OPTS="--proxy $HTTPS_PROXY"
+        [[ -z "$HTTPS_PROXY" && -n "$HTTP_PROXY" ]] && CURL_PROXY_OPTS="--proxy $HTTP_PROXY"
+    fi
+    
+    if [[ -n "$CURL_PROXY_OPTS" ]]; then
+        echo -e "\033[36m检测到代理配置，将通过代理进行网络请求\033[0m"
+    fi
+}
+
+# 初始化代理设置
+setup_proxy
+
 # 检查并安装必要的依赖
 REQUIRED_CMDS=("curl" "wget" "dpkg" "awk" "sed" "sysctl" "jq")
 for cmd in "${REQUIRED_CMDS[@]}"; do
@@ -76,6 +110,32 @@ update_bootloader() {
     fi
 }
 
+# 函数：下载文件（支持断点续传和缓存）
+download_file() {
+    local URL="$1"
+    local FILENAME=$(basename "$URL")
+    local CACHE_FILE="$CACHE_DIR/$FILENAME"
+    
+    # 检查缓存目录中是否已存在完整文件
+    if [[ -f "$CACHE_FILE" ]]; then
+        echo -e "\033[36m在缓存中发现文件：$FILENAME，跳过下载\033[0m"
+        cp "$CACHE_FILE" /tmp/ || { echo -e "\033[31m从缓存复制文件失败：$FILENAME\033[0m"; return 1; }
+        return 0
+    fi
+    
+    echo -e "\033[36m正在下载文件：$URL\033[0m"
+    # 使用 wget 支持断点续传 (-c) 和显示进度
+    # 先下载到缓存目录，成功后复制到 /tmp
+    if wget -c -q --show-progress "$URL" -P "$CACHE_DIR/"; then
+        cp "$CACHE_FILE" /tmp/ || { echo -e "\033[31m从缓存复制文件失败：$FILENAME\033[0m"; return 1; }
+        echo -e "\033[1;32m下载完成并已缓存：$FILENAME\033[0m"
+        return 0
+    else
+        echo -e "\033[31m下载失败：$URL\033[0m"
+        return 1
+    fi
+}
+
 # 函数：安全地安装下载的包
 install_packages() {
     if ! ls /tmp/linux-*.deb &> /dev/null; then
@@ -109,7 +169,7 @@ install_packages() {
 install_latest_version() {
     echo -e "\033[36m正在从 GitHub 获取最新版本信息...\033[0m"
     BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
-    RELEASE_DATA=$(curl -sL "$BASE_URL")
+    RELEASE_DATA=$(curl -sL $CURL_PROXY_OPTS --connect-timeout 30 --retry 3 "$BASE_URL")
     if [[ -z "$RELEASE_DATA" ]]; then
         echo -e "\033[31m从 GitHub 获取版本信息失败。请检查网络连接或 API 状态。\033[0m"
         return 1
@@ -145,8 +205,7 @@ install_latest_version() {
     rm -f /tmp/linux-*.deb
 
     for URL in $ASSET_URLS; do
-        echo -e "\033[36m正在下载文件：$URL\033[0m"
-        wget -q --show-progress "$URL" -P /tmp/ || { echo -e "\033[31m下载失败：$URL\033[0m"; return 1; }
+        download_file "$URL" || return 1
     done
     
     install_packages
@@ -155,7 +214,7 @@ install_latest_version() {
 # 函数：安装指定版本
 install_specific_version() {
     BASE_URL="https://api.github.com/repos/byJoey/Actions-bbr-v3/releases"
-    RELEASE_DATA=$(curl -s "$BASE_URL")
+    RELEASE_DATA=$(curl -s $CURL_PROXY_OPTS --connect-timeout 30 --retry 3 "$BASE_URL")
     if [[ -z "$RELEASE_DATA" ]]; then
         echo -e "\033[31m从 GitHub 获取版本信息失败。请检查网络连接或 API 状态。\033[0m"
         return 1
@@ -196,8 +255,7 @@ install_specific_version() {
     rm -f /tmp/linux-*.deb
     
     for URL in $ASSET_URLS; do
-        echo -e "\033[36m下载中：$URL\033[0m"
-        wget -q --show-progress "$URL" -P /tmp/ || { echo -e "\033[31m下载失败：$URL\033[0m"; return 1; }
+        download_file "$URL" || return 1
     done
 
     install_packages
