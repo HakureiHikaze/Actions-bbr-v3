@@ -1,0 +1,16 @@
+# BBR Cache Directory
+/tmp/bbr-cache/
+bbr-cache/
+
+# Downloaded packages
+*.deb
+
+# Test files
+bbr-downloads/
+releases.json
+urls.txt
+download.sh
+
+# Temporary files
+*.tmp
+*.log

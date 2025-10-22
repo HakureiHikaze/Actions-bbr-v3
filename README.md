@@ -46,6 +46,71 @@
 
 ---
 
+### 🔧 高级功能
+
+#### 代理支持
+
+脚本支持通过环境变量配置代理，适用于需要通过代理访问 GitHub 的场景：
+
+```bash
+# 使用 HTTP/HTTPS 代理
+export HTTP_PROXY="http://proxy.example.com:8080"
+export HTTPS_PROXY="http://proxy.example.com:8080"
+
+# 使用 SOCKS5 代理
+export ALL_PROXY="socks5://127.0.0.1:1080"
+# 或
+export SOCKS_PROXY="socks5://127.0.0.1:1080"
+
+# 然后运行脚本
+bash install.sh
+```
+
+#### 断点续传和缓存支持
+
+脚本已优化下载功能：
+- **断点续传**：网络中断后可以从断点继续下载，不需要重新下载
+- **本地缓存**：下载的文件会缓存在 `/tmp/bbr-cache` 目录（可通过 `CACHE_DIR` 环境变量自定义）
+- **手动放置文件**：可以手动将 `.deb` 文件放入缓存目录，脚本会自动识别并使用
+
+```bash
+# 自定义缓存目录
+export CACHE_DIR="/home/user/bbr-cache"
+bash install.sh
+
+# 手动放置文件到缓存目录
+mkdir -p /tmp/bbr-cache
+cp linux-*.deb /tmp/bbr-cache/
+bash install.sh  # 脚本会自动使用缓存的文件
+```
+
+#### 获取下载链接脚本
+
+新增 `get-download-links.sh` 工具，用于获取当前系统架构的所有可用版本下载链接：
+
+```bash
+# 显示所有版本的下载链接
+bash get-download-links.sh
+
+# 生成 wget 下载脚本
+bash get-download-links.sh --wget -o download.sh
+chmod +x download.sh && ./download.sh
+
+# JSON 格式输出
+bash get-download-links.sh --json
+
+# 仅显示下载链接
+bash get-download-links.sh --urls
+
+# 通过代理获取
+ALL_PROXY=socks5://127.0.0.1:1080 bash get-download-links.sh
+
+# 查看帮助
+bash get-download-links.sh --help
+```
+
+---
+
 ### 🌟 操作界面  
 
 每次运行脚本，你都会进入一个活泼又实用的选项界面：
